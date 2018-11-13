@@ -58,10 +58,19 @@ class AutoencoderConv(nn.Module):
 
 
 class Discriminator(nn.Module):
+    # Simple linear discriminator, 32*32*3*128 layer generates only around 0.4M params, which is reasonable
     def __init__(self):
         super(Discriminator, self).__init__()
+        self.linear1 = nn.Linear(32 * 32 * 3, 128)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.linear2 = nn.Linear(128, 1)
 
     def forward(self, x):
+        x = x.view(x.size(0), 32 * 32 * 3)
+        x = self.linear1(x)
+        x = self.relu1(x)
+        x = self.linear2(x)
+        return x
 
 
 

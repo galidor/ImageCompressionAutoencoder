@@ -5,6 +5,42 @@ import models
 from tensorboardX import SummaryWriter
 
 
+###################################
+# TODO:
+# parser
+# summary_writer
+# losses: L1 and Adv
+# evaluating function - test data
+# baseline experiments: deep baseline on 512 feats, linear model - 512 feats, 200 epochs
+####################################
+
+
+def parse():
+    parser = argparse.ArgumentParser()
+    required = parser.add_argument_group('Required Arguments')
+    optional = parser.add_argument_group('Optional Arguments')
+    required.add_argument('--data_path', type=str, required=True, help='Specifies a path to directory containing'
+                                                                       ' CIFAR dataset, or where you wish to download')
+    required.add_argument('--experiment_name', type=str, required=True, help='Name of your experiment for future'
+                                                                             'reference in TensorBoard')
+
+    optional.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    optional.add_argument('--optim_step', type=int, default=20, help='Number of epochs for learning rate decrease')
+    optional.add_argument('--learning_rate', type=float, default=0.0002, help='Learning rate')
+    optional.add_argument('--normalize', action='store_true', help='Use if you want your data to be normalized')
+    optional.add_argument('--download_dataset', action='store_true', help='Use it if you want to download MNIST to'
+                                                                          ' DATA_PATH folder')
+    optional.add_argument('--model_path', type=str, default='/', help='Path where your network will be'
+                                                                                      ' stored')
+    optional.add_argument('--test', action='store_true', help='Test mode only')
+    optional.add_argument('--epochs', type=int, default=50, help='Total number of epochs')
+    optional.add_argument('--ngf', type=int, default=128)
+    optional.add_argument('--ndf', type=int, default=128)
+
+    args = parser.parse_args()
+    return args
+
+
 writer = SummaryWriter('runs/shallow_MSE_baseline')
 
 data_path = 'data/'
@@ -46,8 +82,14 @@ def train(net_ae, optim_ae, crit_ae, epoch, dataloader, args=None, writer=None):
 def evaluate(net_ae, dataloader):
     pass
 
-for epoch in range(200):
-    train(autoencoder, optimizer_autoencoder, criterion_autoencoder, epoch, cifar_train_loader, writer=writer)
+
+if __name__ == '__main__':
+
+    opt = parse()
 
 
-evaluate(autoencoder, cifar_test_loader)
+    for epoch in range(200):
+        train(autoencoder, optimizer_autoencoder, criterion_autoencoder, epoch, cifar_train_loader, writer=writer)
+
+
+    evaluate(autoencoder, cifar_test_loader)
