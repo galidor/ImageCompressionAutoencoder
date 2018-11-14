@@ -1,5 +1,6 @@
 from torchvision import transforms
 
+
 def get_transform(resize=None, normalize=None, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)):
     transforms_list = []
     if resize is not None:
