@@ -86,7 +86,7 @@ if __name__ == '__main__':
     autoencoder = models.AutoencoderConv(code_size=256).cuda()
     autoencoder.apply(models.weights_init)
     optimizer_autoencoder = torch.optim.Adam(autoencoder.parameters(), lr=0.0002, betas=(0.9, 0.999))
-    criterion_autoencoder = torch.nn.MSELoss(size_average=True)
+    criterion_autoencoder = torch.nn.MSELoss(reduction='elementwise_mean')
 
     for epoch in range(opt.epochs):
         train(autoencoder, optimizer_autoencoder, criterion_autoencoder, epoch, cifar_train_loader, writer=writer)

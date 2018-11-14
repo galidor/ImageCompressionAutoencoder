@@ -7,16 +7,6 @@ import os.path as osp
 import argparse
 
 
-###################################
-# TODO:
-# parser
-# summary_writer
-# losses: L1 and Adv
-# evaluating function - test data
-# baseline experiments: deep baseline on 512 feats, linear model - 512 feats, 200 epochs
-####################################
-
-
 def parse():
     parser = argparse.ArgumentParser()
     required = parser.add_argument_group('Required Arguments')
@@ -35,36 +25,71 @@ def parse():
     optional.add_argument('--model_path', type=str, default='/', help='Path where your network will be'
                                                                       ' stored')
     optional.add_argument('--test', action='store_true', help='Test mode only')
-    optional.add_argument('--epochs', type=int, default=50, help='Total number of epochs')
-    optional.add_argument('--nf', type=int, default=64)
+    optional.add_argument('--max_iter', type=int, default=2e5, help='Total number of iterations')
+    optional.add_argument('--nf', type=int, default=256)
     optional.add_argument('--ndf', type=int, default=128)
     optional.add_argument('--code_length', type=int, default=256, help='Desired compressed image size in bytes')
+    optional.add_argument('--clipping_threshold', type=float, default=0.01)
 
     args = parser.parse_args()
 
     return args
 
 
-def train(net_ae, optim_ae, crit_ae, epoch, dataloader, args=None, writer=None):
-    loss_sum = 0.0
-    for i, data in enumerate(dataloader, 0):
+def train(max_iter, net_ae, net_disc, optim_ae, optim_disc, crit_ae, crit_disc, dataloader, args=None, writer=None):
+    loss_ae_l2_sum = 0.0
+    loss_ae_adv_sum = 0.0
+    loss_disc_sum = 0.0
+    data = iter(dataloader)
+    for i in range(1, int(max_iter + 1)):
+        # Wasserstein-GAN-like discriminator training
+        # fake_imgs is used for images obtained from autoencoder
+        for _ in range(5):
+            net_disc.zero_grad()
+            net_ae.zero_grad()
+            try:
+                true_imgs, _ = next(data)
+            except StopIteration:
+                data = iter(dataloader)
+                true_imgs, _ = next(data)
+            true_imgs = true_imgs.cuda()
+            fake_imgs = net_ae(true_imgs)
+            pred_true = net_disc(true_imgs)
+            pred_fake = net_disc(fake_imgs)
+            loss_disc = -(torch.mean(pred_true) - torch.mean(pred_fake))
+            loss_disc_sum += loss_disc.item() / 5.0
+            loss_disc.backward()
+            optim_disc.step()
+            for p in net_disc.parameters():
+                p.data.clamp_(-args.clipping_threshold, args.clipping_threshold)
+
         net_ae.zero_grad()
-        imgs, _ = data
+        net_disc.zero_grad()
+        try:
+            imgs, _ = next(data)
+        except StopIteration:
+            data = iter(dataloader)
+            imgs, _ = next(data)
         imgs = imgs.cuda()
         imgs_rec = net_ae(imgs)
-        # feat = imgs.view(16, 3*32**2)
-        # feat_rec = imgs_rec.view(16*3, 32**2)
-        # loss_ae = crit_ae(torch.mm(feat_rec, feat_rec.t()), torch.mm(feat, feat.t()))
-        loss_ae = crit_ae(imgs_rec, imgs)
-        loss_sum += loss_ae.item()
+        pred = net_disc(imgs_rec)
+        loss_ae_l2 = crit_ae(imgs_rec, imgs)
+        loss_ae_adv = -torch.mean(pred)
+        loss_ae = loss_ae_l2 + loss_ae_adv
+        loss_ae_l2_sum += loss_ae_l2.item()
+        loss_ae_adv_sum += loss_ae_adv.item()
         loss_ae.backward()
         optim_ae.step()
-        # print(i, loss_ae)
-        if i % round(20000.0/16.0) == 0:
+        if i % 1000 == 0:
             imgs_rec = imgs_rec.clamp_(0, 1)
             im2show = torchvision.utils.make_grid(torch.cat((imgs[0], imgs_rec[0]), dim=0), nrow=2).view(2, 3, 32, 32)
-            writer.add_image('Images/epoch{}-{}'.format(epoch+1, i), im2show)
-    writer.add_scalar('MSE Loss', loss_sum, epoch+1)
+            writer.add_image('Images/iter{}'.format(i), im2show)
+            writer.add_scalar('MSE AE Loss', loss_ae_l2_sum/1000.0, i)
+            writer.add_scalar('Adv AE Loss', loss_ae_adv_sum/1000.0, i)
+            writer.add_scalar('Disc Loss', loss_disc_sum/1000.0, i)
+            loss_ae_l2_sum = 0.0
+            loss_ae_adv_sum = 0.0
+            loss_disc_sum = 0.0
 
 def evaluate(net_ae, dataloader, epoch, args):
     pass
@@ -86,8 +111,13 @@ if __name__ == '__main__':
     autoencoder = models.AutoencoderConv(code_size=256).cuda()
     autoencoder.apply(models.weights_init)
     optimizer_autoencoder = torch.optim.Adam(autoencoder.parameters(), lr=0.0002, betas=(0.9, 0.999))
-    criterion_autoencoder = torch.nn.MSELoss(size_average=True)
+    criterion_autoencoder = torch.nn.MSELoss(reduction='elementwise_mean').cuda()
 
-    for epoch in range(opt.epochs):
-        train(autoencoder, optimizer_autoencoder, criterion_autoencoder, epoch, cifar_train_loader, writer=writer)
-        evaluate(autoencoder, cifar_test_loader, epoch, opt)
+    discriminator = models.Discriminator().cuda()
+    discriminator.apply(models.weights_init)
+    optimizer_discriminator = torch.optim.RMSprop(discriminator.parameters(), lr=0.0001)
+    criterion_discriminator = torch.nn.BCELoss(reduction='elementwise_mean').cuda()
+
+    train(opt.max_iter, autoencoder, discriminator, optimizer_autoencoder, optimizer_discriminator,
+          criterion_autoencoder, criterion_discriminator, cifar_train_loader, writer=writer, args=opt)
+    evaluate(autoencoder, cifar_test_loader, 1, opt)
